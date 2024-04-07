@@ -37,3 +37,5 @@
 
 
 # Resources
+- HC-05 interfacing with MSP430:
+https://circuitdigest.com/microcontroller-projects/interfacing-hc-05-bluetooth-module-with-msp430-launchpad-to-control-an-led
