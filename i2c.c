@@ -63,9 +63,9 @@
  * */
 
 //Sets the power settings, then turns on all the necessary bits
-uint8_t PowerOnSeq[TYPE_1_LENGTH] ={0x00};
-uint8_t GyroConfig[TYPE_1_LENGTH] = {0X10};
-uint8_t AccelConfig[TYPE_1_LENGTH] = {0X10};
+uint8_t PowerOnSeq[TYPE_1_LENGTH] = {0x00};
+uint8_t GyroConfig[TYPE_1_LENGTH] = {0b11110000};
+uint8_t AccelConfig[TYPE_1_LENGTH] ={0b11110000};
 
 
 
@@ -111,28 +111,12 @@ uint8_t TransmitIndex = 0;
 
 
 volatile uint16_t xAccFull = 0;
-volatile float xAccFinal = 0;
 volatile uint16_t yAccFull = 0;
-volatile float yAccFinal = 0;
 volatile uint16_t zAccFull = 0;
-volatile float zAccFinal = 0;
 volatile uint16_t tempFull = 0;
-volatile float tempFinal = 0;
 volatile uint16_t xGyroFull = 0;
-volatile float xGyroFinal = 0;
 volatile uint16_t yGyroFull = 0;
-volatile float yGyroFinal = 0;
 volatile uint16_t zGyroFull = 0;
-volatile float zGyroFinal = 0;
-
-char charreturn[] = "\r\n";
-char mv_char[5];
-
-
-
-void ser_output(char *str);
-void itoa(int n, char s[]);
-void reverse(char s[]);
 
 /* I2C Write and Read Functions */
 
@@ -180,7 +164,7 @@ I2C_Mode I2C_Master_ReadReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t count)
     IE2 |= UCB0TXIE;                        // Enable TX interrupt
 
     UCB0CTL1 |= UCTR + UCTXSTT;             // I2C TX, start condition
-    __bis_SR_register(CPUOFF + GIE);              // Enter LPM0 w/ interrupts
+    __bis_SR_register(GIE);              // Enter LPM0 w/ interrupts
 
     return MasterMode;
 
@@ -208,7 +192,7 @@ I2C_Mode I2C_Master_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_da
     IE2 |= UCB0TXIE;                        // Enable TX interrupt
 
     UCB0CTL1 |= UCTR + UCTXSTT;             // I2C TX, start condition
-    __bis_SR_register(CPUOFF + GIE);              // Enter LPM0 w/ interrupts
+    __bis_SR_register(GIE);              // Enter LPM0 w/ interrupts
 
     return MasterMode;
 }
@@ -270,18 +254,7 @@ void initI2C()
 
 int main(void) {
 
-    //WDTCTL = WDTPW | WDTHOLD;
-    BCSCTL1 = CALBC1_1MHZ;
-    DCOCTL = CALDCO_1MHZ;
-    // Set up WDT interrupt for helpfulness
-    WDTCTL = WDT_ADLY_1000; // WDT interrupt
-    IE1 |= WDTIE; // Enable WDT interrupt
-
-    UCA0CTL1 |= UCSWRST+UCSSEL_2;
-    UCA0BR0 = 52; //settings for 19200 baud
-    UCA0BR1 = 0;
-    UCA0MCTL = UCBRS_0;
-    UCA0CTL1 &= ~UCSWRST;
+    WDTCTL = WDTPW | WDTHOLD;
 
 
     initClockTo16MHz();
@@ -296,30 +269,28 @@ int main(void) {
         I2C_Master_ReadReg(DEV_ADDR, 0x3B, 14); // Read the accelerometer and gyro data from the MPU6050
 
         xAccFull = ReceiveBuffer[0] << 8 | ReceiveBuffer[1];
-        xAccFinal = xAccFull / 16384.0;
+        //xAccFinal = xAccFull / 16384.0;
         yAccFull = ReceiveBuffer[2] << 8 | ReceiveBuffer[3];
-        yAccFinal = yAccFull / 16384.0;
+        //yAccFinal = yAccFull / 16384.0;
         zAccFull = ReceiveBuffer[4] << 8 | ReceiveBuffer[5];
-        zAccFinal = zAccFull / 16384.0;
+        //zAccFinal = zAccFull / 16384.0;
         tempFull = ReceiveBuffer[6] << 8 | ReceiveBuffer[7];
-        tempFinal = (tempFull / 340.0) + 36.53;
+        //tempFinal = (tempFull / 340.0) + 36.53;
         xGyroFull = ReceiveBuffer[8] << 8 | ReceiveBuffer[9];
-        xGyroFinal = xGyroFull / 32.8;
+        //xGyroFinal = xGyroFull / 32.8;
         yGyroFull = ReceiveBuffer[10] << 8 | ReceiveBuffer[11];
-        yGyroFinal = yGyroFull / 32.8;
+        //yGyroFinal = yGyroFull / 32.8;
         zGyroFull = ReceiveBuffer[12] << 8 | ReceiveBuffer[13];
-        zGyroFinal = zGyroFull / 32.8;
-        if(xGyroFull > 40){
+        //zGyroFinal = zGyroFull / 32.8;
+        if(xGyroFull > 32768){
             P1OUT ^= 0X01;
         }
-        itoa((int) xAccFinal, mv_char);
-        ser_output(mv_char);
-        ser_output(charreturn);
+
 
     }
-
-
     __bis_SR_register(LPM0_bits + GIE);
+
+
     return 0;
 }
 
@@ -359,7 +330,7 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
       {
           IE2 &= ~UCB0RXIE;
           MasterMode = IDLE_MODE;
-          __bic_SR_register_on_exit(CPUOFF);      // Exit LPM0
+          __bic_SR_register_on_exit(GIE);      // Exit LPM0
       }
   }
   else if (IFG2 & UCB0TXIFG)            // Transmit Data Interrupt
@@ -400,7 +371,7 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
                   UCB0CTL1 |= UCTXSTP;     // Send stop condition
                   MasterMode = IDLE_MODE;
                   IE2 &= ~UCB0TXIE;                       // disable TX interrupt
-                  __bic_SR_register_on_exit(CPUOFF);      // Exit LPM0
+                  __bic_SR_register_on_exit(GIE);      // Exit LPM0
               }
               break;
 
@@ -439,57 +410,3 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCIAB0RX_ISR (void)
         UCB0STAT &= ~(UCSTTIFG);                    //Clear START Flags
     }
 }
-
-
-
-
-
-
-#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
-#pragma vector=WDT_VECTOR
-__interrupt void watchdog_timer (void)
-#elif defined(__GNUC__)
-void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer (void)
-#else
-#error Compiler not supported!
-#endif
-{
-  __bic_SR_register_on_exit(LPM1_bits);     // Clear LPM3 bits from 0(SR)
-}
-
-void ser_output(char *str){
-    while(*str != 0) {
-        while (!(IFG2&UCA0TXIFG));
-        UCA0TXBUF = *str++;
-        }
-}
-
-/* itoa:  convert n to characters in s */
-void itoa(int n, char s[])
-{
-    int i, sign;
-
-    if ((sign = n) < 0)  /* record sign */
-        n = -n;          /* make n positive */
-    i = 0;
-    do {       /* generate digits in reverse order */
-        s[i++] = n % 10 + '0';   /* get next digit */
-    } while ((n /= 10) > 0);     /* delete it */
-    if (sign < 0)
-        s[i++] = '-';
-    s[i] = '\0';
-    reverse(s);
-}
-
-void reverse(char s[])
-{
-    int i, j;
-    char c;
-
-    for (i = 0, j = strlen(s)-1; i<j; i++, j--) {
-        c = s[i];
-        s[i] = s[j];
-        s[j] = c;
-    }
-}
-
