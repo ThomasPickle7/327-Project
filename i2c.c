@@ -33,7 +33,7 @@
 // Example Commands ************************************************************
 //******************************************************************************
 
-#define SLAVE_ADDR  0x68
+#define DEV_ADDR  0x68
 
 /* CMD_TYPE_X_SLAVE are example commands the master sends to the slave.
  * The slave will send example SlaveTypeX buffers in response.
@@ -69,18 +69,6 @@ uint8_t AccelConfig[TYPE_1_LENGTH] = {0X10};
 
 
 
-
-
-
-
-
-uint8_t MasterType2 [TYPE_2_LENGTH] = {'F', '4', '1', '9', '2', 'B'};
-uint8_t MasterType1 [TYPE_1_LENGTH] = { 8, 9};
-uint8_t MasterType0 [TYPE_0_LENGTH] = { 11};
-
-uint8_t SlaveType2 [TYPE_2_LENGTH] = {0};
-uint8_t SlaveType1 [TYPE_1_LENGTH] = {0};
-uint8_t SlaveType0 [TYPE_0_LENGTH] = {0};
 
 //******************************************************************************
 // General I2C State Machine ***************************************************
@@ -122,12 +110,36 @@ uint8_t TransmitIndex = 0;
 
 
 
+volatile uint16_t xAccFull = 0;
+volatile float xAccFinal = 0;
+volatile uint16_t yAccFull = 0;
+volatile float yAccFinal = 0;
+volatile uint16_t zAccFull = 0;
+volatile float zAccFinal = 0;
+volatile uint16_t tempFull = 0;
+volatile float tempFinal = 0;
+volatile uint16_t xGyroFull = 0;
+volatile float xGyroFinal = 0;
+volatile uint16_t yGyroFull = 0;
+volatile float yGyroFinal = 0;
+volatile uint16_t zGyroFull = 0;
+volatile float zGyroFinal = 0;
+
+char charreturn[] = "\r\n";
+char mv_char[5];
+
+
+
+void ser_output(char *str);
+void itoa(int n, char s[]);
+void reverse(char s[]);
+
 /* I2C Write and Read Functions */
 
 /* For slave device with dev_addr, writes the data specified in *reg_data
  *
  * dev_addr: The slave device address.
- *           Example: SLAVE_ADDR
+ *           Example: DEV_ADDR
  * reg_addr: The register or command to send to the slave.
  *           Example: CMD_TYPE_0_MASTER
  * *reg_data: The buffer to write
@@ -141,7 +153,7 @@ I2C_Mode I2C_Master_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_da
  * The received data is available in ReceiveBuffer
  *
  * dev_addr: The slave device address.
- *           Example: SLAVE_ADDR
+ *           Example: DEV_ADDR
  * reg_addr: The register or command to send to the slave.
  *           Example: CMD_TYPE_0_SLAVE
  * count: The length of data to read
@@ -245,7 +257,7 @@ void initI2C()
     UCB0CTL1 = UCSSEL_2 + UCSWRST;            // Use SMCLK, keep SW reset
     UCB0BR0 = 160;                            // fSCL = SMCLK/160 = ~100kHz
     UCB0BR1 = 0;
-    UCB0I2CSA = SLAVE_ADDR;                   // Slave Address
+    UCB0I2CSA = DEV_ADDR;                   // Slave Address
     UCB0CTL1 &= ~UCSWRST;                     // Clear SW reset, resume operation
     UCB0I2CIE |= UCNACKIE;
 }
@@ -258,21 +270,61 @@ void initI2C()
 
 int main(void) {
 
-    WDTCTL = WDTPW | WDTHOLD;                 // Stop watchdog timer
+    //WDTCTL = WDTPW | WDTHOLD;
+    BCSCTL1 = CALBC1_1MHZ;
+    DCOCTL = CALDCO_1MHZ;
+    // Set up WDT interrupt for helpfulness
+    WDTCTL = WDT_ADLY_1000; // WDT interrupt
+    IE1 |= WDTIE; // Enable WDT interrupt
+
+    UCA0CTL1 |= UCSWRST+UCSSEL_2;
+    UCA0BR0 = 52; //settings for 19200 baud
+    UCA0BR1 = 0;
+    UCA0MCTL = UCBRS_0;
+    UCA0CTL1 &= ~UCSWRST;
+
+
     initClockTo16MHz();
     initGPIO();
     initI2C();
 
 
-    I2C_Master_WriteReg(SLAVE_ADDR, POWER_ON_CMD, PowerOnSeq, TYPE_1_LENGTH);
-    I2C_Master_WriteReg(SLAVE_ADDR, GYRO_CONFIG_CMD, GyroConfig, TYPE_1_LENGTH);
-    I2C_Master_WriteReg(SLAVE_ADDR, ACCEL_CONFIG_CMD, AccelConfig, TYPE_1_LENGTH);
+    I2C_Master_WriteReg(DEV_ADDR, POWER_ON_CMD,     PowerOnSeq,  TYPE_1_LENGTH); // Power on the MPU6050
+    I2C_Master_WriteReg(DEV_ADDR, GYRO_CONFIG_CMD,  GyroConfig,  TYPE_1_LENGTH); // Configure the gyro
+    I2C_Master_WriteReg(DEV_ADDR, ACCEL_CONFIG_CMD, AccelConfig, TYPE_1_LENGTH); // Configure the accelerometer
+    while(1){
+        I2C_Master_ReadReg(DEV_ADDR, 0x3B, 14); // Read the accelerometer and gyro data from the MPU6050
 
+        xAccFull = ReceiveBuffer[0] << 8 | ReceiveBuffer[1];
+        xAccFinal = xAccFull / 16384.0;
+        yAccFull = ReceiveBuffer[2] << 8 | ReceiveBuffer[3];
+        yAccFinal = yAccFull / 16384.0;
+        zAccFull = ReceiveBuffer[4] << 8 | ReceiveBuffer[5];
+        zAccFinal = zAccFull / 16384.0;
+        tempFull = ReceiveBuffer[6] << 8 | ReceiveBuffer[7];
+        tempFinal = (tempFull / 340.0) + 36.53;
+        xGyroFull = ReceiveBuffer[8] << 8 | ReceiveBuffer[9];
+        xGyroFinal = xGyroFull / 32.8;
+        yGyroFull = ReceiveBuffer[10] << 8 | ReceiveBuffer[11];
+        yGyroFinal = yGyroFull / 32.8;
+        zGyroFull = ReceiveBuffer[12] << 8 | ReceiveBuffer[13];
+        zGyroFinal = zGyroFull / 32.8;
+        if(xGyroFull > 40){
+            P1OUT ^= 0X01;
+        }
+        itoa((int) xAccFinal, mv_char);
+        ser_output(mv_char);
+        ser_output(charreturn);
+
+    }
 
 
     __bis_SR_register(LPM0_bits + GIE);
     return 0;
 }
+
+
+
 
 
 //******************************************************************************
@@ -387,3 +439,57 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCIAB0RX_ISR (void)
         UCB0STAT &= ~(UCSTTIFG);                    //Clear START Flags
     }
 }
+
+
+
+
+
+
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=WDT_VECTOR
+__interrupt void watchdog_timer (void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(WDT_VECTOR))) watchdog_timer (void)
+#else
+#error Compiler not supported!
+#endif
+{
+  __bic_SR_register_on_exit(LPM1_bits);     // Clear LPM3 bits from 0(SR)
+}
+
+void ser_output(char *str){
+    while(*str != 0) {
+        while (!(IFG2&UCA0TXIFG));
+        UCA0TXBUF = *str++;
+        }
+}
+
+/* itoa:  convert n to characters in s */
+void itoa(int n, char s[])
+{
+    int i, sign;
+
+    if ((sign = n) < 0)  /* record sign */
+        n = -n;          /* make n positive */
+    i = 0;
+    do {       /* generate digits in reverse order */
+        s[i++] = n % 10 + '0';   /* get next digit */
+    } while ((n /= 10) > 0);     /* delete it */
+    if (sign < 0)
+        s[i++] = '-';
+    s[i] = '\0';
+    reverse(s);
+}
+
+void reverse(char s[])
+{
+    int i, j;
+    char c;
+
+    for (i = 0, j = strlen(s)-1; i<j; i++, j--) {
+        c = s[i];
+        s[i] = s[j];
+        s[j] = c;
+    }
+}
+
