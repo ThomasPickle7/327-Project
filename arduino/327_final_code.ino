@@ -1,6 +1,7 @@
 // Integrated code for the MPU6050 and the HC-05 Bluetooth module
 // Written by Noah Villa and Thomas Pickell
-#include <Wire.h>;
+// Link to Demo Video: 
+#include <Wire.h>
 #include <SoftwareSerial.h>
 
 // Define the pins for the Bluetooth module
