@@ -8,7 +8,7 @@ Arduino: to run our Arduino implementation, simply downlaod the code and upload 
 Code Composer Studio: to run our CCS implementation, simply downlaod the file main.c and upload it to a MSP430FR2433 board, setting up your board according to the following pinout:
 
 ## DEMONSTRATION:
-A Live demonstration of our project can be found [here](PUT THE LINK HERE WHEN WE RECORD).
+A Live demonstration of our project can be found [here](https://drive.google.com/file/d/1XZIgEVxlYv1pwuqYM_hLLPm6eGMVjQot/view).
 
 # Components
 ## I2C
