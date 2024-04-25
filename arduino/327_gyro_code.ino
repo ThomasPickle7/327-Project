@@ -3,19 +3,25 @@
 
 //We will be using the I2C communication protocol to communicate witht he MPU 6050
 //The I2C protocol is setup in the Wire library - we need to include this library
-#include<Wire.h>;
+#include <Wire.h>;
+#include <SoftwareSerial.h>
+
+#define BT_RX 10
+#define BT_TX 11
 
 //The default address of the MPU is 0x68
 const int MPU_addr = 0x68;
 bool fell = false;
 bool print = false;
 
+// Create a SoftwareSerial object for the Bluetooth module.
+SoftwareSerial BTSerial(BT_RX, BT_TX);
 
 void setup() {
   //Here we will begin the I2C communication
-  Serial.begin(38400);
-  Serial.println ("Hit a key to start");     // signal initalization done
-  while (Serial.available() == 0);
+  Serial.begin(9600);
+  BTSerial.begin(9600);
+  Serial.println("Hit a key to start");  // signal initalization done
   Wire.begin();
 
   //Begin transmission with the MPU
@@ -76,12 +82,10 @@ void setup() {
   Wire.endTransmission(true);
 
   //Begin a serial connection so we can read the data
-
-
 }
 
 void loop() {
-    //Again, looking at the register map we can find where the values we want reside. The Accelerometer values are located in registers 59 to 64 (hex 0x3B to 0x40) according to page 29 of the register map
+  //Again, looking at the register map we can find where the values we want reside. The Accelerometer values are located in registers 59 to 64 (hex 0x3B to 0x40) according to page 29 of the register map
   //Here is where it gets interesting. The output of the MPU 6050 is 16 bits, but the I2C protocol demands 8 bit chunks. The registers are also composed of 8 bit chunks.
   //You may notice that there is a register called ACCEL_XOUT_H and ACCEL_XOUT_L, as well as for the Y and Z axis. What is happening is that the data for the accelerometer is split into two separate registers.
   //We need to combine the data from two registers to get the full value. Here's where some boolean operations start to be necessary.
@@ -124,7 +128,7 @@ void loop() {
   Wire.endTransmission(false);
   Wire.requestFrom(MPU_addr, 1, true);
   XAxisL = Wire.read();
- // Serial.print("XAxisL = ");
+  // Serial.print("XAxisL = ");
   //Serial.println(XAxisL, HEX);
   //I'm getting alot of numbers, the one I'll go with is 0x84. This is 01010100. This makes our whole number 0000 0000 0101 0100, or simply 84
   //Now, since we are asking for a signed value from the MPU (ie. it can be negative), we look at the first bit (0000 0000 0101 0100). If it is 0, the number is postive and it if is 1, then it is negative.
@@ -137,20 +141,20 @@ void loop() {
   //If we bit shift the XAxis 8 units to the right, it would be XAxis = 1111 1110 0000 0000. Then if we OR the Xaxis and XAxisL we would get 1111 1110 0101 0100. Neat! Now, how do we do it in code?
   int16_t XAxisFull = XAxis << 8 | XAxisL;
   //The previous line of code bit shifts XAxis 8 places, then ORs it with XAxisL. Now, XAxisFull is the full binary value.
- // Serial.print("XAxisFull = ");
+  // Serial.print("XAxisFull = ");
   //Serial.println(XAxisFull);
   //Hey! It Works! But what is this -468 value? Well, according to the MPU register map on page 29, we can see that with our Full Scale range we selected, the sensitivity is 16384 LSB/g. So, divide -468 by 16384 and we get 0.02856g. We'll do more with that later.
-  float XAxisFinal = (float) XAxisFull / 16384.0;
+  float XAxisFinal = (float)XAxisFull / 16384.0;
 
   //That was a ton of work though. Fortunately, it can be simplified. The following code should be easy enough to understand. We will read the Y and Z axis accel data from registers 0x3D to 0x40
   Wire.beginTransmission(MPU_addr);
   Wire.write(0x3D);
   Wire.endTransmission(false);
   Wire.requestFrom(MPU_addr, 4, true);
-  int16_t YAxisFull =  (Wire.read() << 8 | Wire.read());
-  int16_t ZAxisFull =  (Wire.read() << 8 | Wire.read());
+  int16_t YAxisFull = (Wire.read() << 8 | Wire.read());
+  int16_t ZAxisFull = (Wire.read() << 8 | Wire.read());
   float YAxisFinal = (float)YAxisFull / 16384.0;
-  float ZAxisFinal = (float) ZAxisFull / 16384.0;
+  float ZAxisFinal = (float)ZAxisFull / 16384.0;
   // Serial.print("X Axis = ");
   // Serial.print(XAxisFinal);
   // Serial.println("g");
@@ -169,45 +173,43 @@ void loop() {
   Wire.endTransmission(false);
   Wire.requestFrom(MPU_addr, 2, true);
   int16_t tempFull = Wire.read() << 8 | Wire.read();
-  float tempFinal = (float) tempFull / 340.0 + 36.53;
- // Serial.print("Temp = ");
+  float tempFinal = (float)tempFull / 340.0 + 36.53;
+  // Serial.print("Temp = ");
   //Serial.print(tempFinal);
   //Serial.println("C");
   //26.1°C in my house. Little warm. Now let's get the gyroscope data. Page 31 of the register map
 
-Wire.beginTransmission(MPU_addr);
-Wire.write(0x43);
-Wire.endTransmission(false);
-Wire.requestFrom(MPU_addr, 6, true);
-int16_t XGyroFull = Wire.read() << 8 | Wire.read();
-int16_t YGyroFull = Wire.read() << 8 | Wire.read();
-int16_t ZGyroFull = Wire.read() << 8 | Wire.read();
-float XGyroFinal = (float)XGyroFull/32.8;
-float YGyroFinal = (float)YGyroFull/32.8;
-float ZGyroFinal = (float)ZGyroFull/32.8;
-float magnitude = (float) sqrt(sq(ZGyroFinal) + sq(YGyroFinal) + sq(XGyroFinal));
-  if(fell == true){
-    if(print = false){
-    print = true;
-    Serial.print("YOU FOOL!");
-    }
-  }else{
-Serial.print("X Axis = ");
-Serial.print(XGyroFinal);
-Serial.println(" deg/s");
-Serial.print("Y Axis = ");
-Serial.print(YGyroFinal);
-Serial.println(" deg/s");
-Serial.print("Z Axis = ");
-Serial.print(ZGyroFinal);
-Serial.println(" deg/s");
-Serial.print("Magnitude: ");
-Serial.println(magnitude);
-  //Hell yeah!
-
+  Wire.beginTransmission(MPU_addr);
+  Wire.write(0x43);
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_addr, 6, true);
+  int16_t XGyroFull = Wire.read() << 8 | Wire.read();
+  int16_t YGyroFull = Wire.read() << 8 | Wire.read();
+  int16_t ZGyroFull = Wire.read() << 8 | Wire.read();
+  float XGyroFinal = (float)XGyroFull / 32.8;
+  float YGyroFinal = (float)YGyroFull / 32.8;
+  float ZGyroFinal = (float)ZGyroFull / 32.8;
+  float magnitude = (float)sqrt(sq(ZGyroFinal) + sq(YGyroFinal) + sq(XGyroFinal));
+  if (fell == true) {
+      BTSerial.println("It seems you have fallen! contacting emergency services...");
+      fell = false;
+      delay(2000);
+  } else {
+    Serial.print("X Axis = ");
+    Serial.print(XGyroFinal);
+    Serial.println(" deg/s");
+    Serial.print("Y Axis = ");
+    Serial.print(YGyroFinal);
+    Serial.println(" deg/s");
+    Serial.print("Z Axis = ");
+    Serial.print(ZGyroFinal);
+    Serial.println(" deg/s");
+    Serial.print("Magnitude: ");
+    Serial.println(magnitude);
+    //Hell yeah!
   }
-if(magnitude > 200){
-  fell = true;
-}
-delay(200);
+  if (magnitude > 300) {
+    fell = true;
+  }
+  delay(200);
 }

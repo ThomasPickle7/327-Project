@@ -4,6 +4,7 @@ const int MPU_addr = 0x68;
 bool fell = false;
 bool print = false;
 char Incoming_value = 0;
+float magnitude = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -26,7 +27,17 @@ void setup() {
 }
 
 void loop() {
+  String result="ACK\n";
+  char payload[result.length()+1];
+  result.toCharArray(payload, sizeof(payload));
+  Serial.write((uint8_t *)payload,sizeof(payload));
 
+
+
+
+  if(magnitude > 200){
+    fell = true;
+  }
   byte XAxis = 0;
   Wire.beginTransmission(MPU_addr);
   Wire.write(0x3B);
@@ -59,20 +70,22 @@ void loop() {
   Wire.write(0x43);
   Wire.endTransmission(false);
   Wire.requestFrom(MPU_addr, 6, true);
+
+
   int16_t XGyroFull = Wire.read() << 8 | Wire.read();
   int16_t YGyroFull = Wire.read() << 8 | Wire.read();
   int16_t ZGyroFull = Wire.read() << 8 | Wire.read();
   float XGyroFinal = (float)XGyroFull/32.8;
   float YGyroFinal = (float)YGyroFull/32.8;
   float ZGyroFinal = (float)ZGyroFull/32.8;
-  float magnitude = (float) sqrt(sq(ZGyroFinal) + sq(YGyroFinal) + sq(XGyroFinal));
+  magnitude = (float) sqrt(sq(ZGyroFinal) + sq(YGyroFinal) + sq(XGyroFinal));
   if(fell == true){
     if(print = false){
     print = true;
     //
     if (Serial.available()  > 0){
       Incoming_value = '100000';
-      Serial.println(Incoming_value);
+      Serial.write(Incoming_value);
     }
     //
     }
@@ -91,8 +104,5 @@ void loop() {
       //Hell yeah!
 
       }
-    if(magnitude > 200){
-      fell = true;
-    }
   delay(200);
 }
