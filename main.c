@@ -10,16 +10,13 @@
 #include <stdbool.h>
 #include <math.h>
 
-//******************************************************************************
-// Example Commands ************************************************************
-//******************************************************************************
-
 #define DEV_ADDR  0x68
 
-/*REGISTERS*/
-#define POWER_ON_CMD           0x6B //Power Config Register
-#define GYRO_CONFIG_CMD        0x1B //Gyro Config Register
-#define ACCEL_CONFIG_CMD       0x1C //Accel Config Register
+// I2C CONSTANTS
+#define DEV_ADDR 0x68 // Worker Device Address
+#define POWER_ON_CMD 0x6B //Power Config Register
+#define GYRO_CONFIG_CMD 0x1B //Gyro Config Register
+#define ACCEL_CONFIG_CMD 0x1C //Accel Config Register
 
 /*DATA LENGTHS*/
 #define TYPE_1_LENGTH   2
@@ -27,11 +24,19 @@
 
 #define MAX_BUFFER_SIZE     20
 
-//Sets the power settings, then turns on all the necessary bits
+/*Bit Masks*/
 uint8_t PowerOnSeq[TYPE_1_LENGTH] = {0x00};
-uint8_t GyroConfig[TYPE_1_LENGTH] = {0b11110000};
-uint8_t AccelConfig[TYPE_1_LENGTH] ={0b11110000};
+uint8_t GyroConfig[TYPE_1_LENGTH] = {0xF0};
+uint8_t AccelConfig[TYPE_1_LENGTH] ={0xF0};
 
+// Bluetooth
+#define TXLED BIT0
+#define RXLED BIT1
+#define TXD BIT4
+#define RXD BIT5
+
+const char string[] = { "AT+" };
+unsigned int i; //Counter
 
 
 
@@ -117,10 +122,10 @@ I2C_Mode I2C_controller_ReadReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t coun
 
     UCB0I2CSA = dev_addr;                // Set the worker address
     IFG2 &= ~(UCB0TXIFG + UCB0RXIFG);       // Clear any pending interrupts
-    IE2 &= ~UCB0RXIE;                       // Disable RX interrupt
-    IE2 |= UCB0TXIE;                        // Enable TX interrupt
+    UCB0IE &= ~UCB0RXIE;                       // Disable RX interrupt
+    UCB0IE |= UCB0TXIE;                        // Enable TX interrupt
 
-    UCB0CTL1 |= UCTR + UCTXSTT;             // I2C TX, start condition
+    UCB0CTLW0 |= UCTR + UCTXSTT;             // I2C TX, start condition
     __bis_SR_register(GIE);              // Enter LPM0 w/ interrupts
 
     return controllerMode;
@@ -145,10 +150,10 @@ I2C_Mode I2C_controller_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *re
     /* Initialize worker address and interrupts */
     UCB0I2CSA = dev_addr;
     IFG2 &= ~(UCB0TXIFG + UCB0RXIFG);       // Clear any pending interrupts
-    IE2 &= ~UCB0RXIE;                       // Disable RX interrupt
-    IE2 |= UCB0TXIE;                        // Enable TX interrupt
+    UCB0IE &= ~UCB0RXIE;                       // Disable RX interrupt
+    UCB0IE |= UCB0TXIE;                        // Enable TX interrupt
 
-    UCB0CTL1 |= UCTR + UCTXSTT;             // I2C TX, start condition
+    UCB0CTLW0 |= UCTR + UCTXSTT;             // I2C TX, start condition
     __bis_SR_register(GIE);              // Enter LPM0 w/ interrupts
 
     return controllerMode;
@@ -200,38 +205,33 @@ void initGPIO()
 
 void initI2C()
 {
-    UCB0CTL1 |= UCSWRST;                      // Enable SW reset
+    UCB0CTLW0 |= UCSWRST;                      // Enable SW reset
     UCB0CTL0 = UCMST + UCMODE_3 + UCSYNC;     // I2C controller, synchronous mode
-    UCB0CTL1 = UCSSEL_2 + UCSWRST;            // Use SMCLK, keep SW reset
+    UCB0CTLW0 = UCSSEL_2 + UCSWRST;            // Use SMCLK, keep SW reset
     UCB0BR0 = 160;                            // fSCL = SMCLK/160 = ~100kHz
     UCB0BR1 = 0;
     UCB0I2CSA = DEV_ADDR;                   // worker Address
-    UCB0CTL1 &= ~UCSWRST;                     // Clear SW reset, resume operation
+    UCB0CTLW0 &= ~UCSWRST;                     // Clear SW reset, resume operation
     UCB0I2CIE |= UCNACKIE;
 }
 
+void setupBT() {
+    WDTCTL = WDTPW + WDTHOLD;   // Stop watchdog timer
 
-//******************************************************************************
-// Main ************************************************************************
-// Send and receive three messages containing the example commands *************
-//******************************************************************************
+    P1DIR |= TXLED | RXLED;     // Set P1 as output
+    P1OUT &= ~(TXLED | RXLED);  // Initially turn off LED
+    P1SEL0 |= RXD | TXD ;       // P1.5 = RXD, P1.4 = TXD
 
-int main(void) {
+    UCA0CTLW0 |= UCSWRST;                      // **Put state machine in reset**
+    UCA0CTLW0 |= UCSSEL__SMCLK;                // SMCLK
+    UCA0BR0 = 52;                              // 9600 baud
+    UCA0MCTLW |= UCOS16 | UCBRF_1 | 0x4900;
+    UCA0BR1 = 0;
+    UCA0CTLW0 &= ~UCSWRST;                     // **Initialize USCI state machine**
+    UCA0IE |= UCRXIE;                          // Enables interrupts
+}
 
-    WDTCTL = WDTPW | WDTHOLD;
-
-
-    initClockTo16MHz();
-    initGPIO();
-    initI2C();
-
-
-    I2C_controller_WriteReg(DEV_ADDR, POWER_ON_CMD,     PowerOnSeq,  TYPE_1_LENGTH); // Power on the MPU6050
-    I2C_controller_WriteReg(DEV_ADDR, GYRO_CONFIG_CMD,  GyroConfig,  TYPE_1_LENGTH); // Configure the gyro
-    __delay_cycles(300000);
-    I2C_controller_WriteReg(DEV_ADDR, ACCEL_CONFIG_CMD, AccelConfig, TYPE_1_LENGTH); // Configure the accelerometer
-    __delay_cycles(300000);
-    while(1){
+void I2CLoop(){
         I2C_controller_ReadReg(DEV_ADDR, 0x43, TYPE_2_LENGTH); // Read the accelerometer and gyro data from the MPU6050
         xGyroFull = ReceiveBuffer[8] << 8 | ReceiveBuffer[9];
         xGyroFinal = xGyroFull / 32.8;
@@ -241,16 +241,50 @@ int main(void) {
         zGyroFinal = zGyroFull / 32.8;
         // Calculate the magnitude of the gyro data
         magnitude = sqrt(xGyroFinal * xGyroFinal + yGyroFinal * yGyroFinal + zGyroFinal * zGyroFinal);
-        if(xGyroFull > 0){
+        if(xGyroFull > 300){
             P1OUT ^= 0X01;
             __delay_cycles(1000000);
             P1OUT ^= 0X01;
         }
-        __delay_cycles(500000);
+        __delay_cycles(50000);
+}
+
+void BTloop() {
+    if (!(UCA0IFG & UCRXIFG)) {
+        char data_received = UCA0RXBUF;
+
+        if (data_received == 'a') {
+            i = 0;
+            UCA0TXBUF = string[i++]; // Start sending the string
+        }
     }
-    __bis_SR_register(LPM0_bits + GIE);
+}
+
+void initGyro(){
+    I2C_controller_WriteReg(DEV_ADDR, POWER_ON_CMD,     PowerOnSeq,  TYPE_1_LENGTH); // Power on the MPU6050
+    __delay_cycles(500000);
+    I2C_controller_WriteReg(DEV_ADDR, GYRO_CONFIG_CMD,  GyroConfig,  TYPE_1_LENGTH); // Configure the gyro
+    __delay_cycles(500000);
+    I2C_controller_WriteReg(DEV_ADDR, ACCEL_CONFIG_CMD, AccelConfig, TYPE_1_LENGTH); // Configure the accelerometer
+    __delay_cycles(500000);
+
+}
+
+int main(void) {
+
+    WDTCTL = WDTPW | WDTHOLD;
 
 
+    initClockTo16MHz();
+    initGPIO();
+    initI2C();
+    setupBT();
+    initGyro();
+    __enable_interrupt();
+    while(1){
+        I2CLoop();
+        BTloop();
+    }
     return 0;
 }
 //******************************************************************************
@@ -281,13 +315,13 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
         //If the RX byte counter is 1, then we must send a NACK
       if (RXByteCtr == 1)
       {
-          UCB0CTL1 |= UCTXSTP;
+          UCB0CTLW0 |= UCTXSTP;
       }
       else if (RXByteCtr == 0)
       {
         // Once the RX byte counter is 0, we must send a stop condition
         // and disable the RX interrupt
-          IE2 &= ~UCB0RXIE;
+          UCB0IE &= ~UCB0RXIE;
           controllerMode = IDLE_MODE;
           __bic_SR_register_on_exit(GIE);      // Exit LPM0
       }
@@ -308,16 +342,16 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
               break;
 
           case SWITCH_TO_RX_MODE:
-              IE2 |= UCB0RXIE;              // Enable RX interrupt
-              IE2 &= ~UCB0TXIE;             // Disable TX interrupt
-              UCB0CTL1 &= ~UCTR;            // Switch to receiver
+              UCB0IE |= UCB0RXIE;              // Enable RX interrupt
+              UCB0IE &= ~UCB0TXIE;             // Disable TX interrupt
+              UCB0CTLW0 &= ~UCTR;            // Switch to receiver
               controllerMode = RX_DATA_MODE;    // State state is to receive data
-              UCB0CTL1 |= UCTXSTT;          // Send repeated start
+              UCB0CTLW0 |= UCTXSTT;          // Send repeated start
               if (RXByteCtr == 1)
               {
                   //Must send stop since this is the N-1 byte
-                  while((UCB0CTL1 & UCTXSTT));
-                  UCB0CTL1 |= UCTXSTP;      // Send stop condition
+                  while((UCB0CTLW0 & UCTXSTT));
+                  UCB0CTLW0 |= UCTXSTP;      // Send stop condition
               }
               break;
 
@@ -330,9 +364,9 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
               else
               {
                   //Done with transmission
-                  UCB0CTL1 |= UCTXSTP;     // Send stop condition
+                  UCB0CTLW0 |= UCTXSTP;     // Send stop condition
                   controllerMode = IDLE_MODE;
-                  IE2 &= ~UCB0TXIE;                       // disable TX interrupt
+                  UCB0IE &= ~UCB0TXIE;                       // disable TX interrupt
                   __bic_SR_register_on_exit(GIE);      // Exit LPM0
               }
               break;
@@ -370,5 +404,27 @@ void __attribute__ ((interrupt(USCIAB0RX_VECTOR))) USCIAB0RX_ISR (void)
     if (UCB0STAT & UCSTTIFG)
     {
         UCB0STAT &= ~(UCSTTIFG);                    //Clear START Flags
+    }
+}
+
+
+#pragma vector=USCI_A0_VECTOR
+__interrupt void USCI_A0_ISR(void) {
+    switch(__even_in_range(UCA0IV, USCI_UART_UCTXCPTIFG)) {
+        case USCI_NONE: break;
+        case USCI_UART_UCRXIFG:
+            P2OUT |= RXLED;                 // Turn on LED for debugging
+            char received_byte = UCA0RXBUF; // Received byte from buffer
+            P2OUT &= ~RXLED;                // Turn off LED for debugging
+            break;
+        case USCI_UART_UCTXIFG:
+            P2OUT |= TXLED;                 // Turn on LED for debugging
+            UCA0TXBUF = string[i++];        // TX next character
+            if (i == sizeof(string) - 1)    // Checks to see if transmission is over
+                UCA0IE &= ~UCTXIE;          // Disable USCI_A0 TX interrupt
+            P2OUT &= ~TXLED;                // Turn off TXLED
+            break;
+        case USCI_UART_UCSTTIFG: break;
+        case USCI_UART_UCTXCPTIFG: break;
     }
 }

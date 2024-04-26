@@ -1,7 +1,7 @@
 #include <msp430.h>
 
 #define TXLED BIT0
-#define RXLED BIT1
+#define RXLED BIT1  
 #define TXD BIT4
 #define RXD BIT5
 
