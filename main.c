@@ -196,8 +196,8 @@ void initClockTo16MHz()
 
 void initGPIO()
 {
-    P1DIR |= BIT0 + BIT1 + BIT2 + BIT3 + BIT4;
-    P1OUT &= ~(BIT0 + BIT1 + BIT2 + BIT3 + BIT4);
+    P1DIR |= BIT0 + BIT1 + BIT2 + BIT3;
+    P1OUT &= ~(BIT0 + BIT1 + BIT2 + BIT3);
 
     P1SEL |= BIT6 + BIT7;                     // Assign I2C pins to USCI_B0
     P1SEL2|= BIT6 + BIT7;                     // Assign I2C pins to USCI_B0
