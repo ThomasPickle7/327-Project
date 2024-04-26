@@ -11,7 +11,7 @@ unsigned int i; //Counter
 void setup() {
     WDTCTL = WDTPW + WDTHOLD;   // Stop watchdog timer
 
-    P1DIR |= TXLED | RXLED;     // Set P2 as output
+    P1DIR |= TXLED | RXLED;     // Set P1 as output
     P1OUT &= ~(TXLED | RXLED);  // Initially turn off LED
     P1SEL0 |= RXD | TXD ;       // P1.5 = RXD, P1.4 = TXD
 
