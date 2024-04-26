@@ -235,7 +235,7 @@ void I2CLoop()
     magnitude = sqrt(xGyroFinal * xGyroFinal + yGyroFinal * yGyroFinal + zGyroFinal * zGyroFinal);
     if (xGyroFull > 300)
     {
-        sending_flag = 1;
+        sending_flag = 1; // starts the transmission
         P1OUT ^= 0X01;
         __delay_cycles(1000000);
         P1OUT ^= 0X01;
@@ -260,7 +260,7 @@ void BTloop()
                 j = 0;
                 UCA0TXBUF = message[j++]; // Start sending the string
                 if (j >= 17){
-                    sending_flag = 0;
+                    sending_flag = 0; // finds end of message
                 }
             }
         }
