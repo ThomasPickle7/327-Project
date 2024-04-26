@@ -6,7 +6,7 @@ This is a repository for documenting an embedded systems by Thomas Pickell and N
 The repository contains our final code, in the 'main.c' file, as well as intermediary steps including our non integrated CCS code, in the 'ccs' directory, and the prototype Arduino implementation that can be found in the 'arduino' directory.
 
 ## Use
-Presently, Our full implementation only works in Arduino. We weren't able to fully debug an integrated version that includes both I2C and Bluetooth. the code in 'main.c' is a compilable C project that is intended to send and recieve bluetooth and I2C data.
+Presently, Our full implementation only works in Arduino. while we've acheived partial functionality in both the I2C and Bluetooth capabilities of the device, we weren't able to fully debug an integrated version that includes both I2C and Bluetooth. the code in 'main.c' is a compilable C project that is intended to send and recieve bluetooth and I2C data.
 
 MSP430: to run our CCS implementation, simply downlaod the file main.c and upload it to a MSP430FR2433 board, setting up your board according to the following pinout:     
 - I2C SDA (Serial Data): P1.7
