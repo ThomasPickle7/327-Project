@@ -1,11 +1,18 @@
 # 327-Project
 ## Overview
-This is a repository for documenting an embedded systems by Thomas Pickell and Noah Villa Our project aims to detect when a person has fallen and sned a message via Bluetooth to a mobile device. The device is intended for applications in elder care, similar to products like LifeAlert, and aims to provide an automatic resonse to emergency situations.
+This is a repository for documenting an embedded systems by Thomas Pickell and Noah Villa. Our project aims to detect when a person has fallen and sned a message via Bluetooth to a mobile device. The device is intended for applications in elder care, similar to products like LifeAlert, and aims to provide an automatic resonse to emergency situations.
 
-## USE
-Arduino: to run our Arduino implementation, simply downlaod the code and upload it to any distrubition of an Arduino Uno R3, setting up your arduino board according to the following pinout:
+## Contents
+The repository contains our final code, in the 'main.c' file, as well as intermediary steps including our non integrated CCS code, in the 'ccs' directory, and the prototype Arduino implementation that can be found in the 'arduino' directory.
 
-Code Composer Studio: to run our CCS implementation, simply downlaod the file main.c and upload it to a MSP430FR2433 board, setting up your board according to the following pinout:
+## Use
+Presently, Our full implementation only works in Arduino. We weren't able to fully debug an integrated version that includes both I2C and Bluetooth. the code in 'main.c' is a compilable C project that is intended to send and recieve bluetooth and I2C data.
+
+MSP430: to run our CCS implementation, simply downlaod the file main.c and upload it to a MSP430FR2433 board, setting up your board according to the following pinout:     
+SDA (Serial Data): P1.7
+SCL (Serial Clock):P1.6
+Bluetooth RX: P1.
+Bluetooth TX: P1.
 
 ## DEMONSTRATION:
 A Live demonstration of our project can be found [here](https://drive.google.com/file/d/1XZIgEVxlYv1pwuqYM_hLLPm6eGMVjQot/view).
@@ -17,7 +24,11 @@ I2C is a serial communications protocol that allows for transmission and recepti
 The MPU6050 is a 6-axis gyroscopic sensor and accelerometer, which we use to measure the positional data for our project. To do this, we send messages that include the MPU's address, as well as the register we wish to read. To configure the gyro, we do a similar process, but include a bitmask with which to write to the specified address.
 
 ## Bluetooth
+Bluetooth is a wireless serial communications protocol that allows for fast data transmission over short distances.
+### HC-05
+The HC-05 Bluetooth module is a wireless communications device that allows communication between our MSP430 and most Android devices. It allows for ASCII commands to be sent via a Bluetooth terminal app.
 
 # Process
-We began by dividing the work into 2 main focuses: configuring the Bluetooth module and establishing an I2C connection. This process was done solely in Code Composer Studio, with all code written in C. During this process, we encountered a series of issues and resolved to implementing the poject in Arduino first, then porting it to CCS when we had a functional prototype.
+We began by dividing the work into 2 main focuses: configuring the Bluetooth module and establishing an I2C connection. This process was done solely in Code Composer Studio, with all code written in C. During this process, we encountered a series of issues and resolved to implementing the poject in Arduino first, then porting it to CCS when we had a functional prototype. This repository contains commented code for both implementations, found in the respective arduino and CCS folders. The wiring and components are identical for either implementation of the project.
+
 
