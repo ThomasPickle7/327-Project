@@ -1,33 +1,9 @@
-//******************************************************************************
-//   MSP430G2xx3 Demo - USCI_B0, I2C Master multiple byte TX/RX
-//
-//   Description: I2C master communicates to I2C slave sending and receiving
-//   3 different messages of different length. I2C master will enter LPM0 mode
-//   while waiting for the messages to be sent/receiving using I2C interrupt.
-//   ACLK = NA, MCLK = SMCLK = DCO 16MHz.
-//
-//
-//                   MSP430G2553         3.3V
-//                 -----------------   /|\ /|\
-//            /|\ |                 |   |  4.7k
-//             |  |                 |  4.7k |
-//             ---|RST              |   |   |
-//                |                 |   |   |
-//                |             P1.6|---|---+- I2C Clock (UCB0SCL)
-//                |                 |   |
-//                |             P1.7|---+----- I2C Data (UCB0SDA)
-//                |                 |
-//                |                 |
-//
-//   Nima Eskandari
-//   Texas Instruments Inc.
-//   April 2017
-//   Built with CCS V7.0
-//******************************************************************************
-
+// ELEC 327 Final Project
+// Authors: Thomas Pickell and Noah Villa
 #include <msp430.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
 
 //******************************************************************************
 // Example Commands ************************************************************
@@ -35,32 +11,16 @@
 
 #define DEV_ADDR  0x68
 
-/* CMD_TYPE_X_SLAVE are example commands the master sends to the slave.
- * The slave will send example SlaveTypeX buffers in response.
- *
- * CMD_TYPE_X_MASTER are example commands the master sends to the slave.
- * The slave will initialize itself to receive MasterTypeX example buffers.
- * */
+/*REGISTERS*/
+#define POWER_ON_CMD           0x6B //Power Config Register
+#define GYRO_CONFIG_CMD        0x1B //Gyro Config Register
+#define ACCEL_CONFIG_CMD       0x1C //Accel Config Register
 
-#define POWER_ON_CMD           0x6B
-#define GYRO_CONFIG_CMD        0x1B
-#define ACCEL_CONFIG_CMD       0x1C
-
-#define CMD_TYPE_0_MASTER      3
-#define CMD_TYPE_1_MASTER      4
-#define CMD_TYPE_2_MASTER      5
-
-#define TYPE_0_LENGTH   1
+/*DATA LENGTHS*/
 #define TYPE_1_LENGTH   1
 #define TYPE_2_LENGTH   6
 
 #define MAX_BUFFER_SIZE     20
-
-/* MasterTypeX are example buffers initialized in the master, they will be
- * sent by the master to the slave.
- * SlaveTypeX are example buffers initialized in the slave, they will be
- * sent by the slave to the master.
- * */
 
 //Sets the power settings, then turns on all the necessary bits
 uint8_t PowerOnSeq[TYPE_1_LENGTH] = {0x00};
@@ -75,90 +35,78 @@ uint8_t AccelConfig[TYPE_1_LENGTH] ={0b11110000};
 //******************************************************************************
 
 
+/*STATES*/
 typedef enum I2C_ModeEnum{
-    IDLE_MODE,
-    NACK_MODE,
-    TX_REG_ADDRESS_MODE,
-    RX_REG_ADDRESS_MODE,
-    TX_DATA_MODE,
-    RX_DATA_MODE,
-    SWITCH_TO_RX_MODE,
-    SWITHC_TO_TX_MODE,
-    TIMEOUT_MODE
+    IDLE_MODE,  //Idle state
+    NACK_MODE,  //NACK received
+    TX_REG_ADDRESS_MODE,    //Transmitting register address
+    RX_REG_ADDRESS_MODE,    //Receiving register address
+    TX_DATA_MODE,   //Transmitting data
+    RX_DATA_MODE,   //Receiving data
+    SWITCH_TO_RX_MODE,  //Switching to receive mode
+    SWITHC_TO_TX_MODE,  //Switching to transmit mode
+    TIMEOUT_MODE    //Timeout mode
 } I2C_Mode;
 
-
 /* Used to track the state of the software state machine*/
-I2C_Mode MasterMode = IDLE_MODE;
+I2C_Mode controllerMode = IDLE_MODE;
+
+
 
 /* The Register Address/Command to use*/
 uint8_t TransmitRegAddr = 0;
 
-/* ReceiveBuffer: Buffer used to receive data in the ISR
- * RXByteCtr: Number of bytes left to receive
- * ReceiveIndex: The index of the next byte to be received in ReceiveBuffer
- * TransmitBuffer: Buffer used to transmit data in the ISR
- * TXByteCtr: Number of bytes left to transfer
- * TransmitIndex: The index of the next byte to be transmitted in TransmitBuffer
- * */
-uint8_t ReceiveBuffer[MAX_BUFFER_SIZE] = {0};
-uint8_t RXByteCtr = 0;
-uint8_t ReceiveIndex = 0;
-uint8_t TransmitBuffer[MAX_BUFFER_SIZE] = {0};
-uint8_t TXByteCtr = 0;
-uint8_t TransmitIndex = 0;
+uint8_t ReceiveBuffer[MAX_BUFFER_SIZE] = {0};   // Buffer used to receive data
+uint8_t RXByteCtr = 0;  // Number of bytes left to receive
+uint8_t ReceiveIndex = 0;   // Index of the next byte to be received in ReceiveBuffer
+uint8_t TransmitBuffer[MAX_BUFFER_SIZE] = {0};  // Buffer used to transmit data
+uint8_t TXByteCtr = 0;  // Number of bytes left to transfer
+uint8_t TransmitIndex = 0;  // Index of the next byte to be transmitted in TransmitBuffer
 
-
-
-volatile uint16_t xAccFull = 0;
-volatile uint16_t yAccFull = 0;
-volatile uint16_t zAccFull = 0;
-volatile uint16_t tempFull = 0;
+/*GYRO_DATA*/
+// Used to store and interpret the raw gyro data
 volatile uint16_t xGyroFull = 0;
 volatile uint16_t yGyroFull = 0;
 volatile uint16_t zGyroFull = 0;
 
 /* I2C Write and Read Functions */
 
-/* For slave device with dev_addr, writes the data specified in *reg_data
+/* For worker device with dev_addr, writes the data specified in *reg_data
  *
- * dev_addr: The slave device address.
- *           Example: DEV_ADDR
- * reg_addr: The register or command to send to the slave.
- *           Example: CMD_TYPE_0_MASTER
+ * dev_addr: The device address to write to.
+ * reg_addr: The register or command to send to the device.
  * *reg_data: The buffer to write
- *           Example: MasterType0
+ *           Example: controllerType0
  * count: The length of *reg_data
- *           Example: TYPE_0_LENGTH
+ *           Example: TYPE_1_LENGTH
  *  */
-I2C_Mode I2C_Master_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t count);
+I2C_Mode I2C_controller_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t count);
 
-/* For slave device with dev_addr, read the data specified in slaves reg_addr.
+/* For worker device with dev_addr, read the data specified in workers reg_addr.
  * The received data is available in ReceiveBuffer
  *
- * dev_addr: The slave device address.
+ * dev_addr: The worker device address.
  *           Example: DEV_ADDR
- * reg_addr: The register or command to send to the slave.
- *           Example: CMD_TYPE_0_SLAVE
+ * reg_addr: The register or command to send to the worker.
+ *           Example: CMD_TYPE_0_worker
  * count: The length of data to read
- *           Example: TYPE_0_LENGTH
+ *           Example: TYPE_1_LENGTH
  *  */
-I2C_Mode I2C_Master_ReadReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t count);
+I2C_Mode I2C_controller_ReadReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t count);
 void CopyArray(uint8_t *source, uint8_t *dest, uint8_t count);
 
 
-I2C_Mode I2C_Master_ReadReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t count)
+I2C_Mode I2C_controller_ReadReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t count)
 {
     /* Initialize state machine */
-    MasterMode = TX_REG_ADDRESS_MODE;
-    TransmitRegAddr = reg_addr;
-    RXByteCtr = count;
-    TXByteCtr = 0;
-    ReceiveIndex = 0;
-    TransmitIndex = 0;
+    controllerMode = TX_REG_ADDRESS_MODE;   // Set the state machine to transmit the register address
+    TransmitRegAddr = reg_addr;            // Set the register address to read from
+    RXByteCtr = count;                      // Set the number of bytes to read
+    TXByteCtr = 0;                        // Reset the number of bytes to transmit
+    ReceiveIndex = 0;                  // Reset the receive index
+    TransmitIndex = 0;              // Reset the transmit index
 
-    /* Initialize slave address and interrupts */
-    UCB0I2CSA = dev_addr;
+    UCB0I2CSA = dev_addr;                // Set the worker address
     IFG2 &= ~(UCB0TXIFG + UCB0RXIFG);       // Clear any pending interrupts
     IE2 &= ~UCB0RXIE;                       // Disable RX interrupt
     IE2 |= UCB0TXIE;                        // Enable TX interrupt
@@ -166,15 +114,15 @@ I2C_Mode I2C_Master_ReadReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t count)
     UCB0CTL1 |= UCTR + UCTXSTT;             // I2C TX, start condition
     __bis_SR_register(GIE);              // Enter LPM0 w/ interrupts
 
-    return MasterMode;
+    return controllerMode;
 
 }
 
 
-I2C_Mode I2C_Master_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t count)
+I2C_Mode I2C_controller_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_data, uint8_t count)
 {
     /* Initialize state machine */
-    MasterMode = TX_REG_ADDRESS_MODE;
+    controllerMode = TX_REG_ADDRESS_MODE;
     TransmitRegAddr = reg_addr;
 
     //Copy register data to TransmitBuffer
@@ -185,7 +133,7 @@ I2C_Mode I2C_Master_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_da
     ReceiveIndex = 0;
     TransmitIndex = 0;
 
-    /* Initialize slave address and interrupts */
+    /* Initialize worker address and interrupts */
     UCB0I2CSA = dev_addr;
     IFG2 &= ~(UCB0TXIFG + UCB0RXIFG);       // Clear any pending interrupts
     IE2 &= ~UCB0RXIE;                       // Disable RX interrupt
@@ -194,15 +142,22 @@ I2C_Mode I2C_Master_WriteReg(uint8_t dev_addr, uint8_t reg_addr, uint8_t *reg_da
     UCB0CTL1 |= UCTR + UCTXSTT;             // I2C TX, start condition
     __bis_SR_register(GIE);              // Enter LPM0 w/ interrupts
 
-    return MasterMode;
+    return controllerMode;
 }
 
-
+/*
+* Copies the data from source to dest
+* source: The source array
+* dest: The destination array
+* count: The number of elements to copy
+*/
 void CopyArray(uint8_t *source, uint8_t *dest, uint8_t count)
 {
     uint8_t copyIndex = 0;
+    // Copy data from source to dest
     for (copyIndex = 0; copyIndex < count; copyIndex++)
     {
+        // Copy data from source to dest
         dest[copyIndex] = source[copyIndex];
     }
 }
@@ -237,11 +192,11 @@ void initGPIO()
 void initI2C()
 {
     UCB0CTL1 |= UCSWRST;                      // Enable SW reset
-    UCB0CTL0 = UCMST + UCMODE_3 + UCSYNC;     // I2C Master, synchronous mode
+    UCB0CTL0 = UCMST + UCMODE_3 + UCSYNC;     // I2C controller, synchronous mode
     UCB0CTL1 = UCSSEL_2 + UCSWRST;            // Use SMCLK, keep SW reset
     UCB0BR0 = 160;                            // fSCL = SMCLK/160 = ~100kHz
     UCB0BR1 = 0;
-    UCB0I2CSA = DEV_ADDR;                   // Slave Address
+    UCB0I2CSA = DEV_ADDR;                   // worker Address
     UCB0CTL1 &= ~UCSWRST;                     // Clear SW reset, resume operation
     UCB0I2CIE |= UCNACKIE;
 }
@@ -262,42 +217,30 @@ int main(void) {
     initI2C();
 
 
-    I2C_Master_WriteReg(DEV_ADDR, POWER_ON_CMD,     PowerOnSeq,  TYPE_1_LENGTH); // Power on the MPU6050
-    I2C_Master_WriteReg(DEV_ADDR, GYRO_CONFIG_CMD,  GyroConfig,  TYPE_1_LENGTH); // Configure the gyro
-    I2C_Master_WriteReg(DEV_ADDR, ACCEL_CONFIG_CMD, AccelConfig, TYPE_1_LENGTH); // Configure the accelerometer
+    I2C_controller_WriteReg(DEV_ADDR, POWER_ON_CMD,     PowerOnSeq,  TYPE_1_LENGTH); // Power on the MPU6050
+    I2C_controller_WriteReg(DEV_ADDR, GYRO_CONFIG_CMD,  GyroConfig,  TYPE_1_LENGTH); // Configure the gyro
+    I2C_controller_WriteReg(DEV_ADDR, ACCEL_CONFIG_CMD, AccelConfig, TYPE_1_LENGTH); // Configure the accelerometer
     while(1){
-        I2C_Master_ReadReg(DEV_ADDR, 0x3B, 14); // Read the accelerometer and gyro data from the MPU6050
-
-        xAccFull = ReceiveBuffer[0] << 8 | ReceiveBuffer[1];
-        //xAccFinal = xAccFull / 16384.0;
-        yAccFull = ReceiveBuffer[2] << 8 | ReceiveBuffer[3];
-        //yAccFinal = yAccFull / 16384.0;
-        zAccFull = ReceiveBuffer[4] << 8 | ReceiveBuffer[5];
-        //zAccFinal = zAccFull / 16384.0;
-        tempFull = ReceiveBuffer[6] << 8 | ReceiveBuffer[7];
-        //tempFinal = (tempFull / 340.0) + 36.53;
+        I2C_controller_ReadReg(DEV_ADDR, 0x43, TYPE_2_LENGTH); // Read the accelerometer and gyro data from the MPU6050
         xGyroFull = ReceiveBuffer[8] << 8 | ReceiveBuffer[9];
-        //xGyroFinal = xGyroFull / 32.8;
+        xGyroFinal = xGyroFull / 32.8;
         yGyroFull = ReceiveBuffer[10] << 8 | ReceiveBuffer[11];
-        //yGyroFinal = yGyroFull / 32.8;
+        yGyroFinal = yGyroFull / 32.8;
         zGyroFull = ReceiveBuffer[12] << 8 | ReceiveBuffer[13];
-        //zGyroFinal = zGyroFull / 32.8;
-        if(xGyroFull > 32768){
+        zGyroFinal = zGyroFull / 32.8;
+        // Calculate the magnitude of the gyro data
+        magnitude = sqrt(xGyroFinal * xGyroFinal + yGyroFinal * yGyroFinal + zGyroFinal * zGyroFinal);
+        if(xGyroFull > 300){
+            P1OUT ^= 0X01;
+            __delay_cycles(1000000);
             P1OUT ^= 0X01;
         }
-
-
     }
     __bis_SR_register(LPM0_bits + GIE);
 
 
     return 0;
 }
-
-
-
-
-
 //******************************************************************************
 // I2C Interrupt For Received and Transmitted Data******************************
 //******************************************************************************
@@ -318,38 +261,42 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
 
       if (RXByteCtr)
       {
+        // Stores received data in ReceiveBuffer
           ReceiveBuffer[ReceiveIndex++] = rx_val;
+          // Decrement RX byte counter
           RXByteCtr--;
       }
-
+        //If the RX byte counter is 1, then we must send a NACK
       if (RXByteCtr == 1)
       {
           UCB0CTL1 |= UCTXSTP;
       }
       else if (RXByteCtr == 0)
       {
+        // Once the RX byte counter is 0, we must send a stop condition
+        // and disable the RX interrupt
           IE2 &= ~UCB0RXIE;
-          MasterMode = IDLE_MODE;
+          controllerMode = IDLE_MODE;
           __bic_SR_register_on_exit(GIE);      // Exit LPM0
       }
   }
   else if (IFG2 & UCB0TXIFG)            // Transmit Data Interrupt
   {
-      switch (MasterMode)
+      switch (controllerMode)
       {
           case TX_REG_ADDRESS_MODE:
               UCB0TXBUF = TransmitRegAddr;
               if (RXByteCtr)
-                  MasterMode = SWITCH_TO_RX_MODE;   // Need to start receiving now
+                  controllerMode = SWITCH_TO_RX_MODE;   // Need to start receiving now
               else
-                  MasterMode = TX_DATA_MODE;        // Continue to transmision with the data in Transmit Buffer
+                  controllerMode = TX_DATA_MODE;        // Continue to transmision with the data in Transmit Buffer
               break;
 
           case SWITCH_TO_RX_MODE:
               IE2 |= UCB0RXIE;              // Enable RX interrupt
               IE2 &= ~UCB0TXIE;             // Disable TX interrupt
               UCB0CTL1 &= ~UCTR;            // Switch to receiver
-              MasterMode = RX_DATA_MODE;    // State state is to receive data
+              controllerMode = RX_DATA_MODE;    // State state is to receive data
               UCB0CTL1 |= UCTXSTT;          // Send repeated start
               if (RXByteCtr == 1)
               {
@@ -369,7 +316,7 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
               {
                   //Done with transmission
                   UCB0CTL1 |= UCTXSTP;     // Send stop condition
-                  MasterMode = IDLE_MODE;
+                  controllerMode = IDLE_MODE;
                   IE2 &= ~UCB0TXIE;                       // disable TX interrupt
                   __bic_SR_register_on_exit(GIE);      // Exit LPM0
               }
