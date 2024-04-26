@@ -35,3 +35,7 @@ We began by dividing the work into 2 main focuses: configuring the Bluetooth mod
 
 
 ![screenshot](Block_Diagram1.png)
+
+# Architecture
+Our code is comprised primarily of setup and loop functions. Intuitively, the setup functions run a single time on device startup and the loops are called indefinitely after the setup. Since the I2C and Bluetooth were developed in parallel, integration was most easily done by putting each system's loop and setup in their own functions, then calling them in parallel. More documentation on the specific functions of these loops can be found in the code comments.
+Additionally, we employed interrupt service routines In order to interact with our peripherals. To interface with the I2C bus, we used a state machine that tracks whether data should be read, transmitted, or otherwise, based on the UCB0 input vector. The Bluetooth ISR is timed such that the UART message would be transmitted and read from the buffers at a baud rate of 9600. 
