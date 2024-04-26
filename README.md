@@ -32,3 +32,4 @@ The HC-05 Bluetooth module is a wireless communications device that allows commu
 We began by dividing the work into 2 main focuses: configuring the Bluetooth module and establishing an I2C connection. This process was done solely in Code Composer Studio, with all code written in C. During this process, we encountered a series of issues and resolved to implementing the poject in Arduino first, then porting it to CCS when we had a functional prototype. This repository contains commented code for both implementations, found in the respective arduino and CCS folders. The wiring and components are identical for either implementation of the project.
 
 
+![screenshot](Block_Diagram.png)
