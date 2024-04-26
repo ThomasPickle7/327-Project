@@ -21,7 +21,7 @@
 #define MAX_BUFFER_SIZE 10
 
 /*Bit Masks*/
-//This bit mask is used to turn on the MPU6050, and set the rate of data to the gyro
+// This bit mask is used to turn on the MPU6050, and set the rate of data to the gyro
 uint8_t PowerOnSeq[TYPE_1_LENGTH] = {0x00};
 // This bit mask initializes the gyro, and tells each axis to test itself.
 uint8_t GyroConfig[TYPE_1_LENGTH] = {0xF0};
@@ -36,6 +36,9 @@ uint8_t AccelConfig[TYPE_1_LENGTH] = {0xF0};
 
 const char string[] = {"AT+"};
 unsigned int i; // Counter
+unsigned char sending_flag = 0;
+const char message[] = {"Alert authorities"};
+unsigned int j; //Counter
 
 /*STATES*/
 typedef enum I2C_ModeEnum
@@ -159,7 +162,7 @@ void CopyArray(uint8_t *source, uint8_t *dest, uint8_t count)
 
 /**
  * Initializes the GPIO pins
-*/
+ */
 void initGPIO()
 {
     P1DIR |= BIT0 + BIT1 + BIT2 + BIT3 + BIT4;
@@ -170,7 +173,7 @@ void initGPIO()
 }
 /**
  * Initializes the I2C controller
-*/
+ */
 void initI2C()
 {
     UCB0CTLW0 |= UCSWRST;                 // Enable SW reset
@@ -184,7 +187,7 @@ void initI2C()
 }
 /**
  * Initializes the MPU6050 Gyroscope
-*/
+ */
 void initGyro()
 {
     I2C_controller_WriteReg(DEV_ADDR, POWER_ON_CMD, PowerOnSeq, TYPE_1_LENGTH); // Power on the MPU6050
@@ -196,7 +199,7 @@ void initGyro()
 }
 /**
  * Initializes the Bluetooth controller
-*/
+ */
 void setupBT()
 {
     WDTCTL = WDTPW + WDTHOLD; // Stop watchdog timer
@@ -216,7 +219,7 @@ void setupBT()
 /*LOOPS*/
 /**
  * The main loop for the I2C controller
-*/
+ */
 void I2CLoop()
 {
     I2C_controller_ReadReg(DEV_ADDR, 0x43, TYPE_2_LENGTH); // Read the accelerometer and gyro data from the MPU6050
@@ -232,7 +235,7 @@ void I2CLoop()
     magnitude = sqrt(xGyroFinal * xGyroFinal + yGyroFinal * yGyroFinal + zGyroFinal * zGyroFinal);
     if (xGyroFull > 300)
     {
-        //HERE
+        sending_flag = 1;
         P1OUT ^= 0X01;
         __delay_cycles(1000000);
         P1OUT ^= 0X01;
@@ -241,7 +244,7 @@ void I2CLoop()
 }
 /**
  * The main loop for the Bluetooth controller
-*/
+ */
 void BTloop()
 {
     if (!(UCA0IFG & UCRXIFG))
@@ -250,12 +253,19 @@ void BTloop()
 
         if (data_received == 'a')
         {
-            i = 0;
-            UCA0TXBUF = string[i++]; // Start sending the string
+            if (sending_flag == 0){
+                i = 0;
+                UCA0TXBUF = string[i++]; // Start sending the string
+            }else{
+                j = 0;
+                UCA0TXBUF = message[j++]; // Start sending the string
+                if (j >= 17){
+                    sending_flag = 0;
+                }
+            }
         }
     }
 }
-
 
 int main(void)
 {
@@ -365,7 +375,6 @@ void __attribute__((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR(void)
     }
 }
 
-
 // This ISR detects NACK and Stop conditions
 #if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
 #pragma vector = USCIAB0RX_VECTOR
@@ -391,7 +400,7 @@ void __attribute__((interrupt(USCIAB0RX_VECTOR))) USCIAB0RX_ISR(void)
     }
 }
 
-//UART State Machine interrupt
+// UART State Machine interrupt
 #pragma vector = USCI_A0_VECTOR
 __interrupt void USCI_A0_ISR(void)
 {
